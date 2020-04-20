@@ -24,4 +24,9 @@ data_structures read_input_data();
 
 void delete_structures(data_structures& structures);
 
+/**
+ * Computes sum of edges (v, *), where v is a vertex in the given community.
+ */
+float get_community_weight(int community, data_structures& structures);
+
 #endif /* __UTILS__HPP__ */

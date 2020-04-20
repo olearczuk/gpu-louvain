@@ -53,6 +53,19 @@ data_structures read_input_data() {
     return structures;
 }
 
+float get_community_weight(int community, data_structures& structures) {
+    float total_weight = 0;
+    for (int i = 0; i < structures.V; i++) {
+        int vertex = structures.vertices[i];
+        if (structures.vertex_community[vertex] != community)
+            continue;
+        for (int j = structures.edges_index[vertex]; j < structures.edges_index[vertex + 1]; j++)
+            // TODO: is it okay for sure?  In UNDIRECTED graph edges within community are added 2 times
+            total_weight += structures.weights[j];
+    }
+    return total_weight;
+}
+
 void delete_structures(data_structures& structures) {
     delete[] structures.vertex_community;
     delete[] structures.community_weight;

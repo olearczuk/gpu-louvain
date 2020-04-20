@@ -6,7 +6,7 @@ ALL         := seqlouvain
 
 all : $(ALL)
 
-seqlouvain : sequential/louvain_sequential.o sequential/utils.o sequential/modularity_optimisation.o
+seqlouvain : sequential/louvain_sequential.o sequential/utils.o sequential/modularity_optimisation.o sequential/community_aggregation.o
 	$(CC) $(LFLAGS) -o $@ $^
 
 clean :

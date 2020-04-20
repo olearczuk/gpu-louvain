@@ -1,4 +1,4 @@
-#include <iostream>
+#include <utility>
 #include "modularity_optimisation.hpp"
 
 /**
@@ -7,6 +7,9 @@
 float get_edges_sum(int vertex, data_structures& structures) {
     float sum = 0;
     for (int i = structures.edges_index[vertex]; i < structures.edges_index[vertex + 1]; i++) {
+        // TODO: assumption that there are only positive edges (caused be creating "holes" in aggregation)
+        if (structures.weights[i] == 0)
+            break;
         sum += structures.weights[i];
     }
     return sum;
@@ -20,30 +23,18 @@ float get_edges_to_community(int vertex, int community, data_structures& structu
     int current_community = structures.vertex_community[vertex];
     float sum = 0;
     for (int i = structures.edges_index[vertex]; i < structures.edges_index[vertex + 1]; i++) {
+        // TODO: assumption that there are only positive edges (caused be creating "holes" in aggregation)
+        if (structures.weights[i] == 0)
+            break;
         int neighbour = structures.edges[i];
+        float weight = structures.weights[i];
+        if (weight == 0)
+            break;
         int neighbour_community = structures.vertex_community[neighbour];
-        if (neighbour_community == community && (community != current_community || neighbour != vertex)) {
-            float weight = structures.weights[i];
+        if (neighbour_community == community && (community != current_community || neighbour != vertex))
             sum += weight;
-        }
     }
     return sum;
-}
-
-/**
- * Computes sum of edges (v, *), where v is a vertex in the given community.
- */
-float get_community_weight(int community, data_structures& structures) {
-    float total_weight = 0;
-    for (int i = 0; i < structures.V; i++) {
-        int vertex = structures.vertices[i];
-        if (structures.vertex_community[vertex] != community)
-            continue;
-        for (int j = structures.edges_index[vertex]; j < structures.edges_index[vertex + 1]; j++)
-            // TODO: is it okay for sure?  In UNDIRECTED graph edges within community are added 2 times
-            total_weight += structures.weights[j];
-    }
-    return total_weight;
 }
 
 /**
@@ -62,6 +53,9 @@ std::pair<int, float> find_new_community(int vertex, float vertex_edges_sum, dat
     float act_best_gain = 0;
     int act_best_community = current_community;
     for (int i = structures.edges_index[vertex]; i < structures.edges_index[vertex + 1]; i++) {
+        // TODO: assumption that there are only positive edges (caused be creating "holes" in aggregation)
+        if (structures.weights[i] == 0)
+            break;
         int community = structures.vertex_community[structures.edges[i]];
         if (community >= current_community)
             continue;
@@ -121,7 +115,7 @@ bool optimise_modularity(float min_gain, data_structures& structures) {
     while (gain >= min_gain) {
         gain = find_new_communities(structures);
         was_anything_changed = was_anything_changed || gain > 0;
-        std::cout << gain << "\n";
     }
+
     return was_anything_changed;
 }
