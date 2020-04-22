@@ -9,16 +9,18 @@ data_structures read_input_data() {
     float w;
     int cur_weight;
     data_structures structures = {
+        .original_V = V,
         .V = V,
         .vertex_community = new int[V],
         .community_weight = new float[V],
-        .vertices = new int[V],
+        .edges_index = new int[V+1],
+        .original_to_community = new int[V],
     };
 
     std::vector<std::pair<int, float>> neighbours[V];
     for (int v = 0; v < V; v++) {
         structures.vertex_community[v] = v;
-        structures.vertices[v] = v;
+        structures.original_to_community[v] = v;
     }
     // TODO: here is assumption that graph is undirected
     int aux = E;
@@ -32,13 +34,14 @@ data_structures read_input_data() {
             E++;
             structures.community_weight[v2] += w;
             neighbours[v2].push_back(std::pair<int, float>(v1, w));
+//            structures.M += w;
         }
         structures.M += w;
 
     }
+//    structures.M /= 2;
     structures.edges = new int[E];
     structures.weights = new float[E];
-    structures.edges_index = new int[V+1];
 
     int index = 0;
     for (int v = 0; v < V; v++) {
@@ -55,8 +58,7 @@ data_structures read_input_data() {
 
 float get_community_weight(int community, data_structures& structures) {
     float total_weight = 0;
-    for (int i = 0; i < structures.V; i++) {
-        int vertex = structures.vertices[i];
+    for (int vertex = 0; vertex < structures.V; vertex++) {
         if (structures.vertex_community[vertex] != community)
             continue;
         for (int j = structures.edges_index[vertex]; j < structures.edges_index[vertex + 1]; j++)
@@ -66,11 +68,22 @@ float get_community_weight(int community, data_structures& structures) {
     return total_weight;
 }
 
+void print_vertex_assignments(data_structures& structures) {
+    for (int c = 0; c < structures.V; c++) {
+        std::cout << c + 1;
+        for (int v = 0; v < structures.original_V; v++)
+            if (c == structures.original_to_community[v])
+                std::cout << " " << v + 1;
+        if (c < structures.V - 1)
+            std::cout << "\n";
+    }
+}
+
 void delete_structures(data_structures& structures) {
     delete[] structures.vertex_community;
     delete[] structures.community_weight;
-    delete[] structures.vertices;
     delete[] structures.edges;
     delete[] structures.weights;
     delete[] structures.edges_index;
+    delete[] structures.original_to_community;
 }

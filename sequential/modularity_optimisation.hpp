@@ -8,4 +8,10 @@
  */
 bool optimise_modularity(float min_gain, data_structures& structures);
 
+/**
+ * Computes modularity of graph after the whole process.
+ * There is assumption that structures.vertex_community[v] = v for all vertices.
+ */
+float compute_modularity(data_structures& structures);
+
 #endif /* __MODULARITY_OPTIMISATION__HPP__ */
