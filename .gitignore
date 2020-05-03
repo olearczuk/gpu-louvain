@@ -1,2 +1,6 @@
 seqlouvain
+gpulouvain
 *.o
+tests
+CMakeLists.txt
+cmake-build-debug
