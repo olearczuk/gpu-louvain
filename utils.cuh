@@ -1,74 +1,81 @@
 #ifndef __UTILS__CUH__
 #define __UTILS__CUH__
 
-#include <stdio.h>
+#include <cstdio>
 #include <climits>
 
 const int THREADS_PER_BLOCK = 128;
 const int HASHING = 1000000007;
+const int WARP_SIZE = 32;
 
 struct host_structures {
+	// sum of weights of graph
     float M = 0;
     // original number of vertices
-    int original_V;
+    int originalV;
     // current number of vertices
     int V, E;
     // vertex -> community
-    int *vertex_community;
+    int *vertexCommunity;
     // sum of edges adjacent to community
-    float *community_weight;
+    float *communityWeight;
     // array of neighbours
     int *edges;
     // array of weights of edges
     float *weights;
     // starting index of edges for given vertex (compressed neighbours list)
-    int *edges_index;
+    int *edgesIndex;
     // represents final assignment of vertex to community
-    int *original_to_community;
+    int *originalToCommunity;
+	// vertexIndex -> vertex number
+	int *vertices;
 };
 
 struct device_structures {
-	int *V, *original_V;
+	// current number of vertices and edges
+	int *V, *E;
+	// original number of vertices
+	int *originalV;
 	// vertex -> community
-	int *vertex_community;
+	int *vertexCommunity;
 	// sum of edges adjacent to community
-	float *community_weight;
+	float *communityWeight;
 	// array of neighbours
 	int *edges;
 	// array of weights of edges
 	float *weights;
 	// starting index of edges for given vertex (compressed neighbours list)
-	int *edges_index;
+	int *edgesIndex;
 	// represents final assignment of vertex to community
-	int *original_to_community;
+	int *originalToCommunity;
 	// sums of edges adjacent to vertices
-	float *vertex_edges_sum;
+	float *vertexEdgesSum;
 	// auxiliary array used for remembering new community
-	int *new_vertex_community;
+	int *newVertexCommunity;
 	// total gain stored from every iteration of phase 1
-	float *total_gain;
+	float *totalGain;
+	// vertexIndex -> vertex number
+	int *vertices;
 };
 
 /**
  * Reads input data and initialises values of global variables.
  */
-host_structures read_input_data();
+host_structures readInputData();
 
 /**
  * Deletes both host, and device structures.
- * @param host_struct structures stored in host memory
- * @param dev_struct  structures stored in device memory
+ * @param hostStructures   structures stored in host memory
+ * @param deviceStructures structures stored in device memory
  */
-void  delete_structures(host_structures& host_struct, device_structures& dev_struct);
-
-void copy_structures(host_structures& host_struct, device_structures& dev_struct);
+void  deleteStructures(host_structures& hostStructures, device_structures& deviceStructures);
 
 /**
- * Prints assignment of original vertices to final communities.
- * @param host_struct structures stored in host memory
- * @param dev_struct  structures stored in device memory
+ * Copies structures from hostStructures to deviceStructures.
+ * @param hostStructures   structures stored in host memory
+ * @param deviceStructures structures stored in device memory
  */
-void print_vertex_assignments(host_structures& host_struct, device_structures& dev_struct);
+void copyStructures(host_structures& hostStructures, device_structures& deviceStructures);
 
 static void HandleError(cudaError_t err, const char *file, int line) {
     if (err != cudaSuccess) {
