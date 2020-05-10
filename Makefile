@@ -252,10 +252,13 @@ utils.o: utils.cu
 modularity.o: modularity_optimisation.cu utils.o
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
+aggregation.o: community_aggregation.cu utils.o
+	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
+
 gpulouvain.o: gpulouvain.cu
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -o $@ -c $<
 
-gpulouvain: gpulouvain.o modularity.o utils.o
+gpulouvain: gpulouvain.o modularity.o aggregation.o utils.o
 	$(EXEC) $(NVCC) $(ALL_LDFLAGS) $(GENCODE_FLAGS) -o $@ $+ $(LIBRARIES)
 
 run: build

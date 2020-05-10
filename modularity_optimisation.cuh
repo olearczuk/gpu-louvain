@@ -13,5 +13,8 @@ __constant__ float M;
  */
 bool optimiseModularity(float minGain, device_structures& deviceStructures, host_structures& hostStructures);
 
+float calculateModularity(int V, device_structures deviceStructures);
+
+void printOriginalToCommunity(device_structures& deviceStructures, host_structures& hostStructures);
 
 #endif /* __MODULARITY_OPTIMISATION__CUH__ */

@@ -2,6 +2,7 @@
 #include <climits>
 #include <cstdio>
 #include <thrust/partition.h>
+#include <cmath>
 
 /**
  * Computes hashing (using double hashing) for open-addressing purposes of arrays in prepareHashArrays function.
@@ -24,6 +25,12 @@ __device__ float atomicMaxFloat(float *addr, float value) {
 	return old;
 }
 
+__global__ void printEdgesSum(int *V, float *vertexEdgesSum) {
+	for (int v = 0; v < *V; v++) {
+		printf("vertexEdgesSum %d %f\n", v+1, vertexEdgesSum[v]);
+	}
+}
+
 /**
  * Computes sum of weights of edges adjacent to vertices (results are stored in vertexEdgesSum).
  * @param V              number of vertices
@@ -32,11 +39,11 @@ __device__ float atomicMaxFloat(float *addr, float value) {
  * @param weights        array of weights of edges
  */
 __global__ void computeEdgesSum(int *V, float *vertexEdgesSum, int *edgesIndex, float *weights) {
-	int vertexIndex = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
-	if (vertexIndex < *V) {
-		vertexEdgesSum[vertexIndex] = 0;
-		for (int i = edgesIndex[vertexIndex]; i < edgesIndex[vertexIndex + 1]; i++)
-			vertexEdgesSum[vertexIndex] += weights[i];
+	int vertex = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
+	if (vertex < *V) {
+		vertexEdgesSum[vertex] = 0;
+		for (int i = edgesIndex[vertex]; i < edgesIndex[vertex + 1]; i++)
+			vertexEdgesSum[vertex] += weights[i];
 	}
 }
 
@@ -54,18 +61,16 @@ __global__ void resetCommunityWeight(int communities, float *communityWeight) {
 /**
  * Computes sum of weights of edges adjacent to vertices (results are stored in vertexEdgesSum).
  * @param V               number of vertices
- * @param vertexIndexes   vertex indexes
  * @param communityWeight community -> weight (sum of edges adjacent to vertices of community)
  * @param vertexCommunity vertex -> community assignment
  * @param vertexEdgesSum  vertex -> sum of edges adjacent to vertex
  */
-__global__ void computeCommunityWeight(int V, int *vertexIndexes, float *communityWeight, int *vertexCommunity,
+__global__ void computeCommunityWeight(int V, float *communityWeight, int *vertexCommunity,
 									   float *vertexEdgesSum) {
-	int index = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
-	if (index < V) {
-		int vertexIndex = vertexIndexes[index];
-		int community = vertexCommunity[vertexIndex];
-		atomicAdd(&communityWeight[community], vertexEdgesSum[vertexIndex]);
+	int vertex = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
+	if (vertex < V) {
+		int community = vertexCommunity[vertex];
+		atomicAdd(&communityWeight[community], vertexEdgesSum[vertex]);
 	}
 }
 
@@ -99,7 +104,7 @@ __device__ void prepareHashArrays(int community, int prime, float weight, float 
 
 /**
  * Computes gain that would be obtained if we would move vertex to community.
- * @param vertexIndex      vertex index
+ * @param vertex      	   vertex number
  * @prime                  prime number used for hashing (and size of vertex's area in hash arrays)
  * @param community 	   neighbour's community
  * @param currentCommunity current community of vertex
@@ -110,10 +115,10 @@ __device__ void prepareHashArrays(int community, int prime, float weight, float 
  * @param hashTablesOffset offset of the vertex in hash arrays (single hash array may contain multiple vertices
  * @return gain that would be obtained by moving vertex to community
  */
-__device__ float computeGain(int vertexIndex, int prime, int community, int currentCommunity, float *communityWeight,
+__device__ float computeGain(int vertex, int prime, int community, int currentCommunity, float *communityWeight,
 							 float *vertexEdgesSum, int *hashCommunity, float *hashWeight, int hashTablesOffset) {
 	float communitySum = communityWeight[community];
-	float currentCommunitySum = communityWeight[currentCommunity] - vertexEdgesSum[vertexIndex];
+	float currentCommunitySum = communityWeight[currentCommunity] - vertexEdgesSum[vertex];
 	float vertexToCommunity = 0, vertexToCurrentCommunity = 0;
 	for (int i = 0; i < prime; i++) {
 		int index = hashTablesOffset + i;
@@ -122,8 +127,9 @@ __device__ float computeGain(int vertexIndex, int prime, int community, int curr
 		else if (hashCommunity[index] == currentCommunity)
 			vertexToCurrentCommunity = hashWeight[index];
 	}
+	// TODO - gain does not have to be depending on vertexToCurrentCommunity
 	float gain = (vertexToCommunity - vertexToCurrentCommunity) / M +
-				 vertexEdgesSum[vertexIndex] * (currentCommunitySum - communitySum) / (2 * M * M);
+				 vertexEdgesSum[vertex] * (currentCommunitySum - communitySum) / (2 * M * M);
 	return gain;
 }
 
@@ -131,7 +137,6 @@ __device__ float computeGain(int vertexIndex, int prime, int community, int curr
  * Finds new vertex -> community assignment (stored in newVertexCommunity) that maximise gains for each vertex.
  * @param V                  number of vertices
  * @param vertices		     vertices
- * @param vertexIndexes      vertex indexes
  * @param prime              prime number used for hashing
  * @param vertexCommunity    vertex -> community assignment
  * @param edgesIndex         vertex -> begin index of edges (in edges and weights arrays)
@@ -139,33 +144,31 @@ __device__ float computeGain(int vertexIndex, int prime, int community, int curr
  * @param weights            array of weights of edges
  * @param communityWeight    community -> weight (sum of edges adjacent to vertices of community)
  * @param vertexEdgesSum     vertex -> sum of edges adjacent to vertex
- * @param totalGain          variable that stores sum of partial gains
  * @param newVertexCommunity new vertex -> community assignment
  */
-__global__ void computeMove(int V, int *vertices, int *vertexIndexes, int prime, int *vertexCommunity, int *edgesIndex, int *edges,
-							float *weights, float *communityWeight, float *vertexEdgesSum, float *totalGain, int
+__global__ void computeMove(int V, int *vertices, int prime, int *vertexCommunity, int *edgesIndex, int *edges,
+							float *weights, float *communityWeight, float *vertexEdgesSum, int
 							*newVertexCommunity) {
 	int verticesPerBlock = blockDim.y;
 	int concurrentNeighbours = blockDim.x;
 	int hashTablesOffset = threadIdx.y * prime;
 	int bestGainsIndex = threadIdx.y;
-	int index = blockIdx.x * verticesPerBlock + threadIdx.y;
+	int vertexIndex = blockIdx.x * verticesPerBlock + threadIdx.y;
 	extern __shared__ int s[];
 	int *hashCommunity = s;
 	auto *hashWeight = (float*)&hashCommunity[verticesPerBlock * prime];
 	auto *bestGains = (float*)&hashCommunity[2 * verticesPerBlock * prime];
-	int *neighbourChosen = &hashCommunity[2 * verticesPerBlock * prime + verticesPerBlock];
+//	int *neighbourChosen = &hashCommunity[2 * verticesPerBlock * prime + verticesPerBlock];
 	bestGains[bestGainsIndex] = 0;
-	neighbourChosen[bestGainsIndex] = V;
+//	neighbourChosen[bestGainsIndex] = V;
 	// TODO - maybe there is more elegant solution
 	for (int i = 0; i < prime; i++) {
 		hashWeight[hashTablesOffset + i] = 0;
 		hashCommunity[hashTablesOffset + i] = -1;
 	}
 
-	if (index < V) {
-		int vertexIndex = vertexIndexes[index];
-		int vertex = vertices[vertexIndex];;
+	if (vertexIndex < V) {
+		int vertex = vertices[vertexIndex];
 		int currentCommunity = vertexCommunity[vertex];
 		int bestCommunity = currentCommunity;
 		int bestNeighbour = vertex;
@@ -183,6 +186,7 @@ __global__ void computeMove(int V, int *vertices, int *vertexIndexes, int prime,
 			neighbourIndex += concurrentNeighbours;
 		}
 		// TODO - this should be only for `big case` - 6th bucket (similarly for 7th bucket)
+		// TODO - gain in computeGain does not have to be depending on vertexToCurrentCommunity, so this is not needed
 		if (concurrentNeighbours > WARP_SIZE)
 			__syncthreads();
 		// choosing community
@@ -190,6 +194,7 @@ __global__ void computeMove(int V, int *vertices, int *vertexIndexes, int prime,
 		while (neighbourIndex < edgesIndex[vertex + 1]) {
 			int neighbour = edges[neighbourIndex];
 			int community = vertexCommunity[neighbour];
+			// TODO - this should only be checked both communities have size = 1
 			if (community < currentCommunity) {
 				float gain = computeGain(vertex, prime, community, currentCommunity, communityWeight, vertexEdgesSum,
 										 hashCommunity, hashWeight, hashTablesOffset);
@@ -212,13 +217,13 @@ __global__ void computeMove(int V, int *vertices, int *vertexIndexes, int prime,
 				// TODO - this should be only for `big case` - 6th bucket (similarly for 7th bucket)
 				if (concurrentNeighbours > WARP_SIZE)
 					__syncthreads();
-				if (newVertexCommunity[vertex] == bestCommunity)
-					atomicMin(&neighbourChosen[bestGainsIndex], bestNeighbour);
-				// TODO - this should be only for `big case` - 6th bucket (similarly for 7th bucket)
-				if (concurrentNeighbours > WARP_SIZE)
-					__syncthreads();
-				if (neighbourChosen[bestGainsIndex] == bestNeighbour)
-					atomicAdd(totalGain, bestGain);
+//				if (newVertexCommunity[vertex] == bestCommunity)
+//					atomicMin(&neighbourChosen[bestGainsIndex], bestNeighbour);
+//				 TODO - this should be only for `big case` - 6th bucket (similarly for 7th bucket)
+//				if (concurrentNeighbours > WARP_SIZE)
+//					__syncthreads();
+//				if (neighbourChosen[bestGainsIndex] == bestNeighbour)
+//					atomicAdd(totalGain, bestGain);
 			}
 		}
 	}
@@ -239,14 +244,21 @@ __global__ void updateVertexCommunity(int V, int *vertices, int *newVertexCommun
 	}
 }
 
+__global__ void updateOriginalToCommunity(device_structures deviceStructures) {
+	int vertex = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
+	if (vertex < *deviceStructures.originalV) {
+		int community = deviceStructures.originalToCommunity[vertex];
+		deviceStructures.originalToCommunity[vertex] = deviceStructures.vertexCommunity[community];
+	}
+}
+
 void printVertexAssignments(host_structures& structures) {
 	for (int c = 0; c < structures.V; c++) {
 		printf("%d", c + 1);
-		for (int v = 0; v < structures.originalV; v++)
+		for (int v = 0; v < structures.V; v++)
 			if (c == structures.vertexCommunity[v])
 				printf(" %d", v + 1);
-		if (c < structures.V - 1)
-			printf("\n");
+		printf("\n");
 	}
 }
 
@@ -277,6 +289,7 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 	// computing new vertices weights
 	computeEdgesSum<<<blocks, THREADS_PER_BLOCK>>>(deviceStructures.V, deviceStructures.vertexEdgesSum,
 												   deviceStructures.edgesIndex, deviceStructures.weights);
+//	printEdgesSum<<<1, 1>>>(deviceStructures.V, deviceStructures.vertexEdgesSum);
 
 	HANDLE_ERROR(cudaMemcpy(hostStructures.edgesIndex, deviceStructures.edgesIndex,
 			(hostStructures.V + 1) * (sizeof(int)), cudaMemcpyDeviceToHost));
@@ -294,16 +307,21 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 			{128, 1},
 			{128, 1},
 	};
-	int verticesIndexes[hostStructures.V];
+	int vertices[hostStructures.V];
 	for (int i = 0; i < hostStructures.V; i++)
-		verticesIndexes[i] = i;
-	int *deviceVerticesIndexes;
-	HANDLE_ERROR(cudaMalloc((void**)&deviceVerticesIndexes, hostStructures.V * sizeof(int)));
-	HANDLE_ERROR(cudaMemcpy(deviceVerticesIndexes, verticesIndexes, hostStructures.V * sizeof(int), cudaMemcpyHostToDevice));
-	while (totalGain >= minGain) {
-		totalGain = 0;
-		HANDLE_ERROR(cudaMemcpy(deviceStructures.totalGain, &totalGain, sizeof(float), cudaMemcpyHostToDevice));
+		vertices[i] = i;
+	int *deviceVertices;
+	HANDLE_ERROR(cudaMalloc((void**)&deviceVertices, hostStructures.V * sizeof(int)));
+	HANDLE_ERROR(cudaMemcpy(deviceVertices, vertices, hostStructures.V * sizeof(int), cudaMemcpyHostToDevice));
 
+	// TODO - remove this and add this to community_aggregation
+	resetCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V, deviceStructures.communityWeight);
+	computeCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V,
+			deviceStructures.communityWeight, deviceStructures.vertexCommunity, deviceStructures.vertexEdgesSum);
+
+	while (totalGain >= minGain) {
+		float modularityBefore = calculateModularity(hostStructures.V, deviceStructures);
+		printf("%.10f\n", modularityBefore);
 		// TODO - separate case for last bucket
 		for(int bucketNum= 0; bucketNum < bucketsSize - 2; bucketNum++) {
 			dim3 blockDimension = dims[bucketNum];
@@ -311,25 +329,27 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 			int prime = primes[bucketNum];
 			auto predicate = isInBucket(buckets[bucketNum], buckets[bucketNum + 1], hostStructures.edgesIndex);
 			// TODO thrust::device or thrust::host
-			int *deviceVerticesEnd = thrust::partition(thrust::device, deviceVerticesIndexes, deviceVerticesIndexes + hostStructures.V, predicate);
-			int V = thrust::distance(deviceVerticesIndexes, deviceVerticesEnd);
+			int *deviceVerticesEnd = thrust::partition(thrust::device, deviceVertices, deviceVertices + hostStructures.V, predicate);
+			int V = thrust::distance(deviceVertices, deviceVerticesEnd);
 			if (V > 0) {
 				int sharedMemSize = blockDimension.y * prime * (sizeof(float) + sizeof(int)) +
-								 blockDimension.y * (sizeof(float) + sizeof(int));
+									blockDimension.y * sizeof(float);
+//								 blockDimension.y * (sizeof(float) + sizeof(int));
 				int blocksDegrees = (V * vertexDegree + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-				computeMove<<<blocksDegrees, blockDimension, sharedMemSize>>>(V, deviceStructures.vertices, deviceVerticesIndexes, prime,
+				computeMove<<<blocksDegrees, blockDimension, sharedMemSize>>>(V, deviceVertices, prime,
 						deviceStructures.vertexCommunity, deviceStructures.edgesIndex, deviceStructures.edges,
 						deviceStructures.weights, deviceStructures.communityWeight, deviceStructures.vertexEdgesSum,
-						deviceStructures.totalGain, deviceStructures.newVertexCommunity);
+						deviceStructures.newVertexCommunity);
 			}
 			// updating vertex -> community assignment
-			updateVertexCommunity<<<blocks, THREADS_PER_BLOCK>>>(V, deviceVerticesIndexes,
+			updateVertexCommunity<<<blocks, THREADS_PER_BLOCK>>>(V, deviceVertices,
 																 deviceStructures.newVertexCommunity, deviceStructures.vertexCommunity);
 			// updating community weight
 			resetCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V, deviceStructures.communityWeight);
-			computeCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V, deviceVerticesIndexes,
+			computeCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V,
 																  deviceStructures.communityWeight, deviceStructures.vertexCommunity, deviceStructures.vertexEdgesSum);
 		}
+
 //		dim3 blockDimension = {8, 16};
 //		int V = hostStructures.V;
 //		int vertexDegree = 8;
@@ -337,25 +357,59 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 //		int sharedMemSize = blockDimension.y * prime * (sizeof(float) + sizeof(int)) +
 //				blockDimension.y * (sizeof(float) + sizeof(int));
 //		int blocksDegrees = (V * vertexDegree + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-//		computeMove<<<blocksDegrees, blockDimension, sharedMemSize>>>(V, deviceVerticesIndexes, prime,
-//				deviceStructures.vertexCommunity, deviceStructures.edgesIndex, deviceStructures.edges,
-//				deviceStructures.weights, deviceStructures.communityWeight, deviceStructures.vertexEdgesSum,
-//				deviceStructures.totalGain, deviceStructures.newVertexCommunity);
+//		computeMove<<<blocksDegrees, blockDimension, sharedMemSize>>>(V, deviceVertices, prime,
+//																	  deviceStructures.vertexCommunity, deviceStructures.edgesIndex, deviceStructures.edges,
+//																	  deviceStructures.weights, deviceStructures.communityWeight, deviceStructures.vertexEdgesSum,
+//																	  deviceStructures.newVertexCommunity, deviceStructures.originalToCommunity);
 //
-//		updateVertexCommunity<<<blocks, THREADS_PER_BLOCK>>>(V, deviceVerticesIndexes,
-//				deviceStructures.newVertexCommunity, deviceStructures.vertexCommunity);
-//		// updating community weight
+//		updateVertexCommunity<<<blocks, THREADS_PER_BLOCK>>>(V, deviceVertices,
+//															 deviceStructures.newVertexCommunity, deviceStructures.vertexCommunity);
+		// updating community weight
 //		resetCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V, deviceStructures.communityWeight);
-//		computeCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V, deviceVerticesIndexes,
-//				deviceStructures.communityWeight, deviceStructures.vertexCommunity, deviceStructures.vertexEdgesSum);
+//		computeCommunityWeight<<<blocks, THREADS_PER_BLOCK>>>(hostStructures.V,
+//															  deviceStructures.communityWeight, deviceStructures.vertexCommunity, deviceStructures.vertexEdgesSum);
 
-		HANDLE_ERROR(cudaMemcpy(&totalGain, deviceStructures.totalGain, sizeof(float), cudaMemcpyDeviceToHost));
-		printf("%f\n", totalGain);
+//		HANDLE_ERROR(cudaMemcpy(&totalGain, deviceStructures.totalGain, sizeof(float), cudaMemcpyDeviceToHost));
+		float modularityAfter = calculateModularity(hostStructures.V, deviceStructures);
+		totalGain = modularityAfter - modularityBefore;
 		wasAnythingChanged = wasAnythingChanged | (totalGain > 0);
+		if (totalGain < minGain)
+			printf("%.10f\n", modularityAfter);
 	}
+	updateOriginalToCommunity<<<(hostStructures.originalV + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(deviceStructures);
 	HANDLE_ERROR(cudaMemcpy(hostStructures.vertexCommunity, deviceStructures.vertexCommunity,
 			hostStructures.V * sizeof(float), cudaMemcpyDeviceToHost));
 	printVertexAssignments(hostStructures);
-	HANDLE_ERROR(cudaFree(deviceVerticesIndexes));
+	HANDLE_ERROR(cudaFree(deviceVertices));
 	return wasAnythingChanged;
+}
+
+__global__ void calculateModularityPerVertex(device_structures deviceStructures) {
+	int community = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
+	if (community < *deviceStructures.V) {
+		float e_i_to_ci = 0;
+		for (int vertex = 0; vertex < *deviceStructures.V; vertex++) {
+			if (deviceStructures.vertexCommunity[vertex] == community) {
+				for (int i = deviceStructures.edgesIndex[vertex]; i < deviceStructures.edgesIndex[vertex+1]; i++) {
+					int neighbour = deviceStructures.edges[i];
+					int neighbourCommunity = deviceStructures.vertexCommunity[neighbour];
+					if (neighbourCommunity == community)
+						e_i_to_ci += deviceStructures.weights[i];
+				}
+			}
+		}
+		float M = *deviceStructures.M;
+		atomicAdd(deviceStructures.modularity, e_i_to_ci / (2 * M));
+		float communityWeight = deviceStructures.communityWeight[community];
+		atomicAdd(deviceStructures.modularity, -1 * communityWeight * communityWeight / (4 * M * M));
+	}
+}
+
+float calculateModularity(int V, device_structures deviceStructures) {
+	float modularity = 0;
+	thrust::fill(thrust::device, deviceStructures.modularity, deviceStructures.modularity + 1, (float) 0);
+	int blocksNumber = (V + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+	calculateModularityPerVertex<<<blocksNumber, THREADS_PER_BLOCK>>>(deviceStructures);
+	HANDLE_ERROR(cudaMemcpy(&modularity, deviceStructures.modularity, sizeof(float), cudaMemcpyDeviceToHost));
+	return modularity;
 }

@@ -14,13 +14,11 @@ host_structures readInputData() {
     HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.communityWeight, V * sizeof(float), cudaHostAllocDefault));
     HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.edgesIndex, (V + 1) * sizeof(int), cudaHostAllocDefault));
 	HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.originalToCommunity, V * sizeof(int), cudaHostAllocDefault));
-	HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.vertices, V * sizeof(int), cudaHostAllocDefault));
 
     std::vector<std::pair<int, float>> neighbours[V];
     for (int v = 0; v < V; v++) {
 		hostStructures.vertexCommunity[v] = v;
 		hostStructures.originalToCommunity[v] = v;
-		hostStructures.vertices[v] = v;
     }
     // TODO: here is assumption that graph is undirected
     int aux = E;
@@ -34,6 +32,7 @@ host_structures readInputData() {
             E++;
 			hostStructures.communityWeight[v2] += w;
             neighbours[v2].emplace_back(v1, w);
+			hostStructures.M += w;
         }
 		hostStructures.M += w;
     }
@@ -50,6 +49,7 @@ host_structures readInputData() {
         }
     }
 	hostStructures.edgesIndex[V] = E;
+    printf("M: %f\n", hostStructures.M);
     return hostStructures;
 }
 
@@ -63,11 +63,11 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalToCommunity, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.vertexEdgesSum, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.newVertexCommunity, V * sizeof(int)));
-	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.vertices, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.V, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.E, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalV, sizeof(int)));
-	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.totalGain, sizeof(float)));
+	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.modularity, sizeof(float)));
+	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.M, sizeof(float)));
 
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.vertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.newVertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
@@ -76,10 +76,10 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.weights, hostStructures.weights, E * sizeof(float), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.edgesIndex, hostStructures.edgesIndex, (V + 1) * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.originalToCommunity, hostStructures.originalToCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy(deviceStructures.vertices, hostStructures.vertices, V * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.V, &hostStructures.V, sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.E, &hostStructures.E, sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.originalV, &hostStructures.originalV, sizeof(int), cudaMemcpyHostToDevice));
+	HANDLE_ERROR(cudaMemcpy(deviceStructures.M, &hostStructures.M, sizeof(float), cudaMemcpyHostToDevice));
 }
 
 void deleteStructures(host_structures& hostStructures, device_structures& deviceStructures) {
@@ -100,7 +100,7 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
 	HANDLE_ERROR(cudaFree(deviceStructures.originalToCommunity));
 	HANDLE_ERROR(cudaFree(deviceStructures.vertexEdgesSum));
 	HANDLE_ERROR(cudaFree(deviceStructures.newVertexCommunity));
-	HANDLE_ERROR(cudaFree(deviceStructures.vertices));
-	HANDLE_ERROR(cudaFree(deviceStructures.totalGain));
+	HANDLE_ERROR(cudaFree(deviceStructures.M));
+	HANDLE_ERROR(cudaFree(deviceStructures.modularity));
 	HANDLE_ERROR(cudaFree(deviceStructures.E));
 }

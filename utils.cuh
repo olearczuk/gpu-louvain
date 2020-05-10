@@ -27,11 +27,10 @@ struct host_structures {
     int *edgesIndex;
     // represents final assignment of vertex to community
     int *originalToCommunity;
-	// vertexIndex -> vertex number
-	int *vertices;
 };
 
 struct device_structures {
+	float *M;
 	// current number of vertices and edges
 	int *V, *E;
 	// original number of vertices
@@ -52,10 +51,8 @@ struct device_structures {
 	float *vertexEdgesSum;
 	// auxiliary array used for remembering new community
 	int *newVertexCommunity;
-	// total gain stored from every iteration of phase 1
-	float *totalGain;
-	// vertexIndex -> vertex number
-	int *vertices;
+	// modularity of graph
+	float *modularity;
 };
 
 /**
