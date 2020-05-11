@@ -134,9 +134,6 @@ __global__ void mergeCommunity(int V, int *communities, device_structures device
 						int neighbour = deviceStructures.edges[index];
 						float weight = deviceStructures.weights[index];
 						int neighbourCommunity = deviceStructures.vertexCommunity[neighbour];
-						// TODO - this step is to make sure M stays the same for all iterations
-						if (neighbourCommunity == community && neighbour != vertex)
-							weight /= 2;
 						int curPos = prepareHashArraysAggregation(neighbourCommunity, prime, weight, hashWeight,
 																  hashCommunity, hashTablesOffset);
 						if (curPos > -1) {
@@ -342,7 +339,7 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 
 void printOriginalToCommunity(device_structures& deviceStructures, host_structures& hostStructures) {
 	HANDLE_ERROR(cudaMemcpy(&hostStructures.V, deviceStructures.V, sizeof(int), cudaMemcpyDeviceToHost));
-	HANDLE_ERROR(cudaMemcpy(&hostStructures.originalToCommunity, deviceStructures.originalToCommunity,
+	HANDLE_ERROR(cudaMemcpy(hostStructures.originalToCommunity, deviceStructures.originalToCommunity,
 			hostStructures.originalV * sizeof(int), cudaMemcpyDeviceToHost));
 	for (int c = 0; c < hostStructures.V; c++) {
 		printf("%d", c+1);
