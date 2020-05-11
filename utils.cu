@@ -66,7 +66,6 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.V, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.E, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalV, sizeof(int)));
-	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.modularity, sizeof(float)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.communitySize, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.partition, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.M, sizeof(float)));
@@ -105,7 +104,6 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
 	HANDLE_ERROR(cudaFree(deviceStructures.vertexEdgesSum));
 	HANDLE_ERROR(cudaFree(deviceStructures.newVertexCommunity));
 	HANDLE_ERROR(cudaFree(deviceStructures.M));
-	HANDLE_ERROR(cudaFree(deviceStructures.modularity));
 	HANDLE_ERROR(cudaFree(deviceStructures.E));
 }
 

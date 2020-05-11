@@ -12,11 +12,10 @@ int main() {
 	for (;;) {
 		if (!optimiseModularity(0.001, deviceStructures, hostStructures))
 			break;
-//		break;
 		aggregateCommunities(deviceStructures, hostStructures);
 	}
 	int V;
 	HANDLE_ERROR(cudaMemcpy(&V, deviceStructures.V, sizeof(int), cudaMemcpyDeviceToHost));
-	printf("%f\n", calculateModularity(V, deviceStructures));
+	printf("%f\n", calculateModularity(V, hostStructures.M, deviceStructures));
 	printOriginalToCommunity(deviceStructures, hostStructures);
 }

@@ -27,7 +27,7 @@ const dim3 dims[] {
  */
 bool optimiseModularity(float minGain, device_structures& deviceStructures, host_structures& hostStructures);
 
-float calculateModularity(int V, device_structures deviceStructures);
+float calculateModularity(int V, float M, device_structures deviceStructures);
 
 void printOriginalToCommunity(device_structures& deviceStructures, host_structures& hostStructures);
 

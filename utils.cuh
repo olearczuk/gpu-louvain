@@ -52,8 +52,6 @@ struct device_structures {
 	float *vertexEdgesSum;
 	// auxiliary array used for remembering new community
 	int *newVertexCommunity;
-	// modularity of graph
-	float *modularity;
 	// community -> number of vertices in community
 	int *communitySize;
 	// array used for splitting vertices into buckest
