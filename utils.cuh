@@ -7,6 +7,7 @@
 const int THREADS_PER_BLOCK = 128;
 const int HASHING = 1000000007;
 const int WARP_SIZE = 32;
+const int FULL_MASK = 0xffffffff;
 
 struct host_structures {
 	// sum of weights of graph
@@ -53,6 +54,10 @@ struct device_structures {
 	int *newVertexCommunity;
 	// modularity of graph
 	float *modularity;
+	// community -> number of vertices in community
+	int *communitySize;
+	// array used for splitting vertices into buckest
+	int *partition;
 };
 
 /**
@@ -73,6 +78,8 @@ void  deleteStructures(host_structures& hostStructures, device_structures& devic
  * @param deviceStructures structures stored in device memory
  */
 void copyStructures(host_structures& hostStructures, device_structures& deviceStructures);
+
+int blocksNumber(int V, int threadsPerVertex);
 
 static void HandleError(cudaError_t err, const char *file, int line) {
     if (err != cudaSuccess) {

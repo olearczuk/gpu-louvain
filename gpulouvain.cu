@@ -8,11 +8,15 @@ int main() {
     auto hostStructures = readInputData();
     device_structures deviceStructures;
 	copyStructures(hostStructures, deviceStructures);
+	initM(hostStructures);
 	for (;;) {
 		if (!optimiseModularity(0.001, deviceStructures, hostStructures))
 			break;
-		break;
+//		break;
 		aggregateCommunities(deviceStructures, hostStructures);
 	}
-//	printOriginalToCommunity(deviceStructures, hostStructures);
+	int V;
+	HANDLE_ERROR(cudaMemcpy(&V, deviceStructures.V, sizeof(int), cudaMemcpyDeviceToHost));
+	printf("%f\n", calculateModularity(V, deviceStructures));
+	printOriginalToCommunity(deviceStructures, hostStructures);
 }

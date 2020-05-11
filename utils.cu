@@ -1,6 +1,7 @@
 #include "utils.cuh"
 #include <vector>
 #include <iostream>
+#include <thrust/partition.h>
 
 host_structures readInputData() {
     int V, E;
@@ -49,7 +50,6 @@ host_structures readInputData() {
         }
     }
 	hostStructures.edgesIndex[V] = E;
-    printf("M: %f\n", hostStructures.M);
     return hostStructures;
 }
 
@@ -67,7 +67,11 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.E, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalV, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.modularity, sizeof(float)));
+	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.communitySize, V * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.partition, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.M, sizeof(float)));
+
+	thrust::fill(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + hostStructures.V, 1);
 
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.vertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.newVertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
@@ -103,4 +107,8 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
 	HANDLE_ERROR(cudaFree(deviceStructures.M));
 	HANDLE_ERROR(cudaFree(deviceStructures.modularity));
 	HANDLE_ERROR(cudaFree(deviceStructures.E));
+}
+
+int blocksNumber(int V, int threadsPerVertex) {
+	return (V * threadsPerVertex + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 }
