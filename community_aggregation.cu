@@ -9,8 +9,8 @@
  * @return hash
  */
 __device__ int getHashAggregation(int val, int index, int prime) {
-	int h1 = val % HASHING;
-	int h2 = 1 + (val % (HASHING - 1));
+	int h1 = val % prime;
+	int h2 = 1 + (val % (prime - 1));
 	return (h1 + index * h2) % prime;
 }
 
@@ -334,7 +334,7 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 	updateOriginalToCommunity<<<(hostStructures.originalV + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(deviceStructures, newID);
 
 
-	printNewGraph<<<1, 1>>>(deviceStructures);
+//	printNewGraph<<<1, 1>>>(deviceStructures);
 
 }
 

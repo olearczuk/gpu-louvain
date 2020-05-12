@@ -5,7 +5,6 @@
 #include <climits>
 
 const int THREADS_PER_BLOCK = 128;
-const int HASHING = 1000000007;
 const int WARP_SIZE = 32;
 const int FULL_MASK = 0xffffffff;
 
@@ -61,7 +60,7 @@ struct device_structures {
 /**
  * Reads input data and initialises values of global variables.
  */
-host_structures readInputData();
+host_structures readInputData(char *fileName);
 
 /**
  * Deletes both host, and device structures.

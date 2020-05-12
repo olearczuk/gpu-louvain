@@ -2,10 +2,13 @@
 #include <vector>
 #include <iostream>
 #include <thrust/partition.h>
+#include <fstream>
 
-host_structures readInputData() {
+host_structures readInputData(char *fileName) {
+	std::fstream file;
+	file.open(fileName);
     int V, E;
-    std::cin >> V >> V >> E;
+    file >> V >> V >> E;
     int v1, v2;
     float w;
     host_structures hostStructures;
@@ -24,7 +27,7 @@ host_structures readInputData() {
     // TODO: here is assumption that graph is undirected
     int aux = E;
     for (int i = 0; i < aux; i++) {
-        std::cin >> v1 >> v2 >> w;
+        file >> v1 >> v2 >> w;
         v1--;
         v2--;
 		hostStructures.communityWeight[v1] += w;
@@ -50,6 +53,7 @@ host_structures readInputData() {
         }
     }
 	hostStructures.edgesIndex[V] = E;
+    file.close();
     return hostStructures;
 }
 
