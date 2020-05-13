@@ -3,12 +3,19 @@
 #include <iostream>
 #include <thrust/partition.h>
 #include <fstream>
+#include <getopt.h>
+#include <sstream>
 
 host_structures readInputData(char *fileName) {
 	std::fstream file;
 	file.open(fileName);
     int V, E;
-    file >> V >> V >> E;
+	std::string s;
+	do {
+		std::getline(file, s);
+	} while (s[0] == '%');
+	std::istringstream stream(s);
+    stream >> V >> V >> E;
     int v1, v2;
     float w;
     host_structures hostStructures;
@@ -20,10 +27,6 @@ host_structures readInputData(char *fileName) {
 	HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.originalToCommunity, V * sizeof(int), cudaHostAllocDefault));
 
     std::vector<std::pair<int, float>> neighbours[V];
-    for (int v = 0; v < V; v++) {
-		hostStructures.vertexCommunity[v] = v;
-		hostStructures.originalToCommunity[v] = v;
-    }
     // TODO: here is assumption that graph is undirected
     int aux = E;
     for (int i = 0; i < aux; i++) {
@@ -57,7 +60,9 @@ host_structures readInputData(char *fileName) {
     return hostStructures;
 }
 
-void copyStructures(host_structures& hostStructures, device_structures& deviceStructures) {
+void copyStructures(host_structures& hostStructures, device_structures& deviceStructures,
+					aggregation_phase_structures& aggregationPhaseStructures) {
+	// copying from deviceStructures to hostStructures
 	int V = hostStructures.V, E = hostStructures.E;
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.vertexCommunity, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.communityWeight, V * sizeof(float)));
@@ -72,24 +77,33 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalV, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.communitySize, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.partition, V * sizeof(int)));
-	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.M, sizeof(float)));
 
-	thrust::fill(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + hostStructures.V, 1);
+	thrust::fill(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + V, 1);
+	thrust::sequence(thrust::device, deviceStructures.vertexCommunity, deviceStructures.vertexCommunity + V, 0);
+	thrust::sequence(thrust::device, deviceStructures.newVertexCommunity, deviceStructures.newVertexCommunity + V, 0);
+	thrust::sequence(thrust::device, deviceStructures.originalToCommunity, deviceStructures.originalToCommunity + V, 0);
 
-	HANDLE_ERROR(cudaMemcpy(deviceStructures.vertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy(deviceStructures.newVertexCommunity, hostStructures.vertexCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.communityWeight, hostStructures.communityWeight, V * sizeof(float), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.edges, hostStructures.edges, E * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.weights, hostStructures.weights, E * sizeof(float), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.edgesIndex, hostStructures.edgesIndex, (V + 1) * sizeof(int), cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy(deviceStructures.originalToCommunity, hostStructures.originalToCommunity, V * sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.V, &hostStructures.V, sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.E, &hostStructures.E, sizeof(int), cudaMemcpyHostToDevice));
 	HANDLE_ERROR(cudaMemcpy(deviceStructures.originalV, &hostStructures.originalV, sizeof(int), cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy(deviceStructures.M, &hostStructures.M, sizeof(float), cudaMemcpyHostToDevice));
+
+	// preparing aggregationPhaseStructures
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.communityDegree, V * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.newID, V * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.edgePos, V * sizeof(int)));;
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.vertexStart, V * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.orderedVertices, V * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.edgeIndexToCurPos, E * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.newEdges, E * sizeof(int)));
+	HANDLE_ERROR(cudaMalloc((void**)&aggregationPhaseStructures.newWeights, E * sizeof(float)));
 }
 
-void deleteStructures(host_structures& hostStructures, device_structures& deviceStructures) {
+void deleteStructures(host_structures& hostStructures, device_structures& deviceStructures,
+					  aggregation_phase_structures& aggregationPhaseStructures) {
     HANDLE_ERROR(cudaFreeHost(hostStructures.vertexCommunity));
     HANDLE_ERROR(cudaFreeHost(hostStructures.communityWeight));
     HANDLE_ERROR(cudaFreeHost(hostStructures.edges));
@@ -97,7 +111,7 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
     HANDLE_ERROR(cudaFreeHost(hostStructures.edgesIndex));
     HANDLE_ERROR(cudaFreeHost(hostStructures.originalToCommunity));
 
-	HANDLE_ERROR(cudaFree(deviceStructures.V));
+
 	HANDLE_ERROR(cudaFree(deviceStructures.originalV));
     HANDLE_ERROR(cudaFree(deviceStructures.vertexCommunity));
 	HANDLE_ERROR(cudaFree(deviceStructures.communityWeight));
@@ -107,10 +121,62 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
 	HANDLE_ERROR(cudaFree(deviceStructures.originalToCommunity));
 	HANDLE_ERROR(cudaFree(deviceStructures.vertexEdgesSum));
 	HANDLE_ERROR(cudaFree(deviceStructures.newVertexCommunity));
-	HANDLE_ERROR(cudaFree(deviceStructures.M));
 	HANDLE_ERROR(cudaFree(deviceStructures.E));
+	HANDLE_ERROR(cudaFree(deviceStructures.V));
+	HANDLE_ERROR(cudaFree(deviceStructures.communitySize));
+	HANDLE_ERROR(cudaFree(deviceStructures.partition));
+
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.communityDegree));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.newID));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.edgePos));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.vertexStart));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.orderedVertices));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.edgeIndexToCurPos));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.newEdges));
+	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.newWeights));
 }
 
 int blocksNumber(int V, int threadsPerVertex) {
 	return (V * threadsPerVertex + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+}
+
+bool isPrime(int n) {
+	for (int i = 2; i < sqrt(n) + 1; i++)
+		if (n % i == 0)
+			return false;
+	return true;
+}
+
+int getPrime(int n) {
+	do {
+		n++;
+	} while(!isPrime(n));
+	return n;
+}
+
+void parseCommandLineArgs(int argc, char *argv[], float *minGain, bool *isVerbose, char **fileName) {
+	bool isF, isG;
+	char opt;
+	while ((opt = getopt(argc, argv, "f:g:v")) != -1) {
+		switch (opt) {
+			case 'g':
+				isG = true;
+				*minGain = strtof(optarg, NULL);
+				break;
+			case 'v':
+				*isVerbose = true;
+				break;
+			case 'f':
+				isF = true;
+				*fileName = optarg;
+				break;
+			default:
+				printf("Usage: ./gpulouvain -f mtx-matrix-file -g min-gain [-v]\n");
+				exit(1);
+		}
+	}
+	if (!isF || !isG) {
+		printf("Usage: ./gpulouvain -f mtx-matrix-file -g min-gain [-v]\n");
+		exit(1);
+	}
 }

@@ -30,8 +30,6 @@ struct host_structures {
 };
 
 struct device_structures {
-	float *M;
-	// current number of vertices and edges
 	int *V, *E;
 	// original number of vertices
 	int *originalV;
@@ -53,8 +51,19 @@ struct device_structures {
 	int *newVertexCommunity;
 	// community -> number of vertices in community
 	int *communitySize;
-	// array used for splitting vertices into buckest
+	// array used for splitting vertices into buckets
 	int *partition;
+};
+
+struct aggregation_phase_structures {
+	int *communityDegree;
+	int *newID;
+	int *edgePos;
+	int *vertexStart;
+	int *orderedVertices;
+	int *edgeIndexToCurPos;
+	int *newEdges;
+	float *newWeights;
 };
 
 /**
@@ -67,14 +76,15 @@ host_structures readInputData(char *fileName);
  * @param hostStructures   structures stored in host memory
  * @param deviceStructures structures stored in device memory
  */
-void  deleteStructures(host_structures& hostStructures, device_structures& deviceStructures);
+void  deleteStructures(host_structures& hostStructures, device_structures& deviceStructures,
+					   aggregation_phase_structures& aggregationPhaseStructures);
 
 /**
  * Copies structures from hostStructures to deviceStructures.
  * @param hostStructures   structures stored in host memory
  * @param deviceStructures structures stored in device memory
  */
-void copyStructures(host_structures& hostStructures, device_structures& deviceStructures);
+void copyStructures(host_structures& hostStructures, device_structures& deviceStructures, aggregation_phase_structures& secondPhaseStructure);
 
 int blocksNumber(int V, int threadsPerVertex);
 
@@ -85,6 +95,10 @@ static void HandleError(cudaError_t err, const char *file, int line) {
         exit( EXIT_FAILURE );
     }
 }
+
+int getPrime(int n);
+
+void parseCommandLineArgs(int argc, char *argv[], float *minGain, bool *isVerbose, char **filePath);
 
 #define HANDLE_ERROR( err) (HandleError( err, __FILE__, __LINE__ ))
 

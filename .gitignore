@@ -4,3 +4,4 @@ gpulouvain
 tests
 CMakeLists.txt
 cmake-build-debug
+.idea
