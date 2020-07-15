@@ -173,17 +173,22 @@ __device__ void computeMove(int V, int *vertices, int prime, device_structures d
 				}
 			}
 		} else {
+            bestGains[threadIdx.x] = bestGain;
+            bestCommunities[threadIdx.x] = bestCommunity;
 			for (unsigned int offset = concurrentNeighbours / 2; offset > 0; offset /= 2) {
 				__syncthreads();
 				if (threadIdx.x < offset) {
 					float otherGain = bestGains[threadIdx.x + offset];
 					int otherCommunity = bestCommunities[threadIdx.x + offset];
-					if (otherGain > bestGain || (otherGain == bestGain && otherCommunity < bestCommunity)) {
-						bestGains[threadIdx.x] = bestGain;
-						bestCommunities[threadIdx.x] = bestCommunity;
+					if (otherGain > bestGains[threadIdx.x] ||
+					   (otherGain == bestGains[threadIdx.x] && otherCommunity < bestCommunities[threadIdx.x])) {
+						bestGains[threadIdx.x] = otherGain;
+						bestCommunities[threadIdx.x] = otherCommunity;
 					}
 				}
 			}
+            bestGain = bestGains[threadIdx.x];
+            bestCommunity = bestCommunities[threadIdx.x];
 		}
 		if (threadIdx.x == 0 && bestGain - vertexToCurrentCommunity[threadIdx.y] / M > 0) {
 			newVertexCommunity[vertex] = bestCommunity;
@@ -270,16 +275,24 @@ struct isInBucket
 	}
 };
 
+int getMaxDegree(host_structures& hostStructures) {
+    int curMax = 0;
+    for (int i = 0; i < hostStructures.V; i++)
+        curMax = std::max(curMax, hostStructures.edgesIndex[i+1] - hostStructures.edgesIndex[i]);
+    return curMax;
+}
+
 bool optimiseModularity(float minGain, device_structures& deviceStructures, host_structures& hostStructures) {
 	int V = hostStructures.V;
 	computeEdgesSum<<<blocksNumber(V, WARP_SIZE), dim3{WARP_SIZE, THREADS_PER_BLOCK / WARP_SIZE}>>>(deviceStructures);
 
+	// TODO - can be done in the end of phase 2
 	HANDLE_ERROR(cudaMemcpy(hostStructures.edgesIndex, deviceStructures.edgesIndex,(V + 1) * (sizeof(int)), cudaMemcpyDeviceToHost));
 
 	int *partition = deviceStructures.partition;
 	thrust::sequence(thrust::device, partition, partition + V, 0);
 
-	int lastBucketPrime = getPrime(V * 1.5);
+	int lastBucketPrime = getPrime(getMaxDegree(hostStructures) * 1.5);
 	int *hashCommunity;
 	float *hashWeight;
 
@@ -295,19 +308,21 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 			int *deviceVerticesEnd = thrust::partition(thrust::device, partition, partition + V, predicate);
 			int verticesInBucket = thrust::distance(partition, deviceVerticesEnd);
 			if (verticesInBucket > 0) {
-				int sharedMemSize = blockDimension.y * prime * (sizeof(float) + sizeof(int)) + blockDimension.y * sizeof(float);
-				if (blockDimension.x > WARP_SIZE)
-					sharedMemSize += THREADS_PER_BLOCK * (sizeof(int) + sizeof(float));
-				int blocksNumber = (verticesInBucket + blockDimension.y - 1) / blockDimension.y;
-				computeMoveShared<<<blocksNumber, blockDimension, sharedMemSize>>>(verticesInBucket, partition, prime,
-																												   deviceStructures);
-
-			}
-			// updating vertex -> community assignment
-			updateVertexCommunity<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(verticesInBucket, partition, deviceStructures);
-			// updating community weight
-			thrust::fill(thrust::device, deviceStructures.communityWeight, deviceStructures.communityWeight + hostStructures.V, (float) 0);
-			computeCommunityWeight<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(deviceStructures);
+                int sharedMemSize =
+                        blockDimension.y * prime * (sizeof(float) + sizeof(int)) + blockDimension.y * sizeof(float);
+                if (blockDimension.x > WARP_SIZE)
+                    sharedMemSize += THREADS_PER_BLOCK * (sizeof(int) + sizeof(float));
+                int blocksNum = (verticesInBucket + blockDimension.y - 1) / blockDimension.y;
+                computeMoveShared<<<blocksNum, blockDimension, sharedMemSize>>>(verticesInBucket, partition, prime,
+                                                                                   deviceStructures);
+                // updating vertex -> community assignment
+                updateVertexCommunity<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(verticesInBucket, partition,
+                                                                                 deviceStructures);
+                // updating community weight
+                thrust::fill(thrust::device, deviceStructures.communityWeight,
+                             deviceStructures.communityWeight + hostStructures.V, (float) 0);
+                computeCommunityWeight<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(deviceStructures);
+            }
 		}
 
 		// last bucket case
@@ -327,6 +342,13 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
 			HANDLE_ERROR(cudaFree(hashCommunity));
 			HANDLE_ERROR(cudaFree(hashWeight));
 		}
+        // updating vertex -> community assignment
+        updateVertexCommunity<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(verticesInBucket, partition,
+                                                                         deviceStructures);
+        // updating community weight
+        thrust::fill(thrust::device, deviceStructures.communityWeight,
+                     deviceStructures.communityWeight + hostStructures.V, (float) 0);
+        computeCommunityWeight<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(deviceStructures);
 
 		float modularityAfter = calculateModularity(V, hostStructures.M, deviceStructures);
 		totalGain = modularityAfter - modularityBefore;
@@ -357,30 +379,27 @@ __global__ void calculateToOwnCommunity(device_structures deviceStructures, floa
 	}
 }
 
-__global__ void calculateCommunityWeightSum(device_structures deviceStructures, float *sum) {
-	int community = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
-	if (community < *deviceStructures.V) {
-		float communityWeight = deviceStructures.communityWeight[community];
-		atomicAdd(sum, communityWeight * communityWeight);
-	}
-}
+struct square {
+    __device__ float operator()(const float &x) const {
+        return x * x;
+    }
+};
+
 
 float calculateModularity(int V, float M, device_structures deviceStructures) {
-	float *toOwnCommunityDevice, *communityWeightSumDevice;
+	float *toOwnCommunityDevice;
 	HANDLE_ERROR(cudaMalloc((void**)&toOwnCommunityDevice, sizeof(float)));
-	HANDLE_ERROR(cudaMalloc((void**)&communityWeightSumDevice, sizeof(float)));
 	thrust::fill(thrust::device, toOwnCommunityDevice, toOwnCommunityDevice + 1, (float) 0);
-	thrust::fill(thrust::device, communityWeightSumDevice, communityWeightSumDevice + 1, (float) 0);
 
-	float toOwnCommunity = 0, communityWeightSum = 0;
+	float toOwnCommunity = 0;
 	int blocksNumber = (V + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 	calculateToOwnCommunity<<<blocksNumber, THREADS_PER_BLOCK>>>(deviceStructures, toOwnCommunityDevice);
-	calculateCommunityWeightSum<<<blocksNumber, THREADS_PER_BLOCK>>>(deviceStructures, communityWeightSumDevice);
+    float communityWeightSum = thrust::transform_reduce(thrust::device, deviceStructures.communityWeight,
+            deviceStructures.communityWeight + V,
+                                                square(), 0.0, thrust::plus<float>());
 
 	HANDLE_ERROR(cudaMemcpy(&toOwnCommunity, toOwnCommunityDevice, sizeof(float), cudaMemcpyDeviceToHost));
-	HANDLE_ERROR(cudaMemcpy(&communityWeightSum, communityWeightSumDevice, sizeof(float), cudaMemcpyDeviceToHost));
 	HANDLE_ERROR(cudaFree(toOwnCommunityDevice));
-	HANDLE_ERROR(cudaFree(communityWeightSumDevice));
 	return toOwnCommunity / (2 * M) - communityWeightSum  / (4 * M * M);
 }
 

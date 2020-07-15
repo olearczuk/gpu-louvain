@@ -26,7 +26,7 @@ host_structures readInputData(char *fileName) {
     HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.edgesIndex, (V + 1) * sizeof(int), cudaHostAllocDefault));
 	HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.originalToCommunity, V * sizeof(int), cudaHostAllocDefault));
 
-    std::vector<std::pair<int, float>> neighbours[V];
+    std::vector<std::vector<std::pair<int, float>>> neighbours(V);
     // TODO: here is assumption that graph is undirected
     int aux = E;
     for (int i = 0; i < aux; i++) {
@@ -43,6 +43,7 @@ host_structures readInputData(char *fileName) {
         }
 		hostStructures.M += w;
     }
+    hostStructures.M /= 2;
     HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.edges, E * sizeof(int), cudaHostAllocDefault));
     HANDLE_ERROR(cudaHostAlloc((void**)&hostStructures.weights, E * sizeof(float), cudaHostAllocDefault));
 	hostStructures.E = E;

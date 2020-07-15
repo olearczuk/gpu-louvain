@@ -30,6 +30,7 @@ int main(int argc, char *argv[]) {
 	for (;;) {
 		if (!optimiseModularity(minGain, deviceStructures, hostStructures))
 			break;
+		break;
 		aggregateCommunities(deviceStructures, hostStructures, aggregationPhaseStructures);
 	}
 	int V;
