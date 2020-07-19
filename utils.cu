@@ -78,6 +78,8 @@ void copyStructures(host_structures& hostStructures, device_structures& deviceSt
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.originalV, sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.communitySize, V * sizeof(int)));
 	HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.partition, V * sizeof(int)));
+    HANDLE_ERROR(cudaMalloc((void**)&deviceStructures.toOwnCommunity, V * sizeof(int)));
+
 
 	thrust::fill(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + V, 1);
 	thrust::sequence(thrust::device, deviceStructures.vertexCommunity, deviceStructures.vertexCommunity + V, 0);
@@ -126,6 +128,7 @@ void deleteStructures(host_structures& hostStructures, device_structures& device
 	HANDLE_ERROR(cudaFree(deviceStructures.V));
 	HANDLE_ERROR(cudaFree(deviceStructures.communitySize));
 	HANDLE_ERROR(cudaFree(deviceStructures.partition));
+    HANDLE_ERROR(cudaFree(deviceStructures.toOwnCommunity));
 
 	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.communityDegree));
 	HANDLE_ERROR(cudaFree(aggregationPhaseStructures.newID));

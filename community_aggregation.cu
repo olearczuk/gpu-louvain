@@ -85,16 +85,12 @@ __device__ void  mergeCommunity(int V, int *communities, device_structures devic
 	if (communityIndex < V) {
 		int community = communities[communityIndex];
 		if (deviceStructures.communitySize[community] > 0) {
-				if (threadIdx.x == 0) {
-					for (int i = 0; i < prime; i++) {
-						hashWeight[hashTablesOffset + i] = 0;
-						hashCommunity[hashTablesOffset + i] = -1;
-					}
-					if (concurrentThreads > WARP_SIZE) {
-                        for (int i = 0; i < concurrentThreads; i++)
-                            prefixSum[i] = 0;
-                    }
-				}
+                for (unsigned int i = threadIdx.x; i < prime; i += concurrentThreads) {
+                    hashWeight[hashTablesOffset + i] = 0;
+                    hashCommunity[hashTablesOffset + i] = -1;
+                }
+                if (concurrentThreads > WARP_SIZE)
+                    prefixSum[threadIdx.x] = 0;
 
 				if (concurrentThreads > WARP_SIZE)
 					__syncthreads();
@@ -298,7 +294,6 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 	thrust::fill(thrust::device, deviceStructures.E, deviceStructures.E + 1, 0);
 
 	for (int bucketNum = 0; bucketNum < bucketsSize - 2; bucketNum++) {
-//    for (int bucketNum = 0; bucketNum < 1; bucketNum++) {
 			dim3 blockDimension = dims[bucketNum];
 			int prime = primes[bucketNum];
 			auto predicate = IsInBucketAggregation(buckets[bucketNum], buckets[bucketNum + 1], communityDegree);

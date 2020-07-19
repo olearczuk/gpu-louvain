@@ -31,7 +31,6 @@ int main(int argc, char *argv[]) {
 		if (!optimiseModularity(minGain, deviceStructures, hostStructures))
 			break;
 		aggregateCommunities(deviceStructures, hostStructures, aggregationPhaseStructures);
-		printf("---------------------\n");
 	}
 	int V;
 	HANDLE_ERROR(cudaMemcpy(&V, deviceStructures.V, sizeof(int), cudaMemcpyDeviceToHost));

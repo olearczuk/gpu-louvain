@@ -6,7 +6,7 @@
 
 const int THREADS_PER_BLOCK = 128;
 const int WARP_SIZE = 32;
-const int FULL_MASK = 0xffffffff;
+const unsigned int FULL_MASK = 0xffffffff;
 
 struct host_structures {
 	// sum of weights of graph
@@ -53,6 +53,7 @@ struct device_structures {
 	int *communitySize;
 	// array used for splitting vertices into buckets
 	int *partition;
+    float *toOwnCommunity;
 };
 
 struct aggregation_phase_structures {
