@@ -30,8 +30,8 @@ int main(int argc, char *argv[]) {
 	for (;;) {
 		if (!optimiseModularity(minGain, deviceStructures, hostStructures))
 			break;
-		break;
 		aggregateCommunities(deviceStructures, hostStructures, aggregationPhaseStructures);
+		printf("---------------------\n");
 	}
 	int V;
 	HANDLE_ERROR(cudaMemcpy(&V, deviceStructures.V, sizeof(int), cudaMemcpyDeviceToHost));

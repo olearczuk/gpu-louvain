@@ -37,27 +37,10 @@ __device__ int prepareHashArraysAggregation(int community, int prime, float weig
 				atomicAdd(&hashWeight[curPos], weight);
 				return curPos;
 			} else if (hashCommunity[curPos] == community) {
-				float weightBefore = atomicAdd(&hashWeight[curPos], weight);
+				atomicAdd(&hashWeight[curPos], weight);
 				return -1;
 			}
 		}
-	}
-}
-
-// TODO - remove
-__global__ void initEdgeIndexToCurPos(int E, int *initEdgeIndexToCurPos) {
-	int index = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
-	if (index < E) {
-		initEdgeIndexToCurPos[index] = -1;
-	}
-}
-
-__global__ void initArrays(int V, int *communitySize, int *communityDegree, int *newID) {
-	int index = blockIdx.x * THREADS_PER_BLOCK + threadIdx.x;
-	if (index < V) {
-		communitySize[index] = 0;
-		communityDegree[index] = 0;
-		newID[index] = 0;
 	}
 }
 
@@ -73,7 +56,7 @@ __global__ void fillArrays(int V, int *communitySize, int *communityDegree, int 
 }
 
 /**
- * orderVerices is responsible for generating ordered (meaning vertices in the same community are placed
+ * orderVertices is responsible for generating ordered (meaning vertices in the same community are placed
  * next to each other) vertices.
  * @param V               - number of vertices
  * @param orderedVertices - ordered vertices
@@ -107,6 +90,10 @@ __device__ void  mergeCommunity(int V, int *communities, device_structures devic
 						hashWeight[hashTablesOffset + i] = 0;
 						hashCommunity[hashTablesOffset + i] = -1;
 					}
+					if (concurrentThreads > WARP_SIZE) {
+                        for (int i = 0; i < concurrentThreads; i++)
+                            prefixSum[i] = 0;
+                    }
 				}
 
 				if (concurrentThreads > WARP_SIZE)
@@ -125,8 +112,8 @@ __device__ void  mergeCommunity(int V, int *communities, device_structures devic
 						int neighbourCommunity = deviceStructures.vertexCommunity[neighbour];
 						int curPos = prepareHashArraysAggregation(neighbourCommunity, prime, weight, hashWeight,
 																  hashCommunity, hashTablesOffset);
-						edgeIndexToCurPos[index] = curPos;
 						if (curPos > -1) {
+                            edgeIndexToCurPos[index] = curPos;
 							communitiesOwned++;
 						}
 					}
@@ -147,7 +134,7 @@ __device__ void  mergeCommunity(int V, int *communities, device_structures devic
 						__syncthreads();
 						prefixSum[threadIdx.x] = communitiesOwnedPrefixSum;
 						__syncthreads();
-						if (threadIdx.x - offset >= 0)
+						if (threadIdx.x >= offset)
 							communitiesOwnedPrefixSum += prefixSum[threadIdx.x - offset];
 					}
 					// subtraction to have exclusive sum
@@ -158,7 +145,7 @@ __device__ void  mergeCommunity(int V, int *communities, device_structures devic
 				int newEdgesIndex = edgePos[community] + communitiesOwnedPrefixSum;
 				if (threadIdx.x == concurrentThreads - 1) {
 					communityDegree[community] = communitiesOwnedPrefixSum + communitiesOwned;
-					atomicAdd(deviceStructures.E, communitiesOwnedPrefixSum + communitiesOwned);
+					atomicAdd(deviceStructures.E, communityDegree[community]);
 				}
 				for (int vertexIndex = 0; vertexIndex < deviceStructures.communitySize[community]; vertexIndex++) {
 					int vertex = orderedVertices[vertexStart[community] + vertexIndex];
@@ -264,7 +251,8 @@ struct IsInBucketAggregation
 
 void aggregateCommunities(device_structures &deviceStructures, host_structures &hostStructures,
 						  aggregation_phase_structures& aggregationPhaseStructures) {
-	int blocks = (hostStructures.V + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    int V = hostStructures.V, E = hostStructures.E;
+	int blocks = (V + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 	int *communityDegree = aggregationPhaseStructures.communityDegree,
 		*newID = aggregationPhaseStructures.newID, *edgePos = aggregationPhaseStructures.edgePos,
 		*vertexStart = aggregationPhaseStructures.vertexStart,
@@ -272,16 +260,17 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 		*edgeIndexToCurPos = aggregationPhaseStructures.edgeIndexToCurPos,
 		*newEdges = aggregationPhaseStructures.newEdges;
 	float *newWeights = aggregationPhaseStructures.newWeights;
-	int V = hostStructures.V, E = hostStructures.E;
 
-	int vertices[hostStructures.V];
-	for (int i = 0; i < hostStructures.V; i++)
+	int vertices[V];
+	for (int i = 0; i < V; i++)
 		vertices[i] = i;
 	int *deviceVertices;
-	HANDLE_ERROR(cudaMalloc((void**)&deviceVertices, hostStructures.V * sizeof(int)));
-	HANDLE_ERROR(cudaMemcpy(deviceVertices, vertices, hostStructures.V * sizeof(int), cudaMemcpyHostToDevice));
+	HANDLE_ERROR(cudaMalloc((void**)&deviceVertices, V * sizeof(int)));
+	HANDLE_ERROR(cudaMemcpy(deviceVertices, vertices, V * sizeof(int), cudaMemcpyHostToDevice));
 
-	initArrays<<<blocks, THREADS_PER_BLOCK>>>(V, deviceStructures.communitySize, communityDegree, newID);
+	thrust::fill(thrust::device, newID, newID + V, 0);
+	thrust::fill(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + V, 0);
+	thrust::fill(thrust::device, communityDegree, communityDegree + V, 0);
 	fillArrays<<<blocks, THREADS_PER_BLOCK>>>(V, deviceStructures.communitySize, communityDegree, newID,
 			deviceStructures.vertexCommunity, deviceStructures.edgesIndex);
 	int newV = thrust::reduce(thrust::device, newID, newID + V);
@@ -289,12 +278,14 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 	thrust::exclusive_scan(thrust::device, communityDegree, communityDegree + V, edgePos);
 	thrust::exclusive_scan(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + V, vertexStart);
 
+
+
+
 	orderVertices<<<blocks, THREADS_PER_BLOCK>>>(V, orderedVertices, vertexStart,
 			deviceStructures.vertexCommunity);
 //	 resetting vertexStart state to one before orderVertices call
 	thrust::exclusive_scan(thrust::device, deviceStructures.communitySize, deviceStructures.communitySize + V, vertexStart);
-
-	initEdgeIndexToCurPos<<<(hostStructures.E + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(E, edgeIndexToCurPos);
+    thrust::fill(thrust::device, edgeIndexToCurPos, edgeIndexToCurPos + E, -1);
 
 	int bucketsSize = 4;
 	int buckets[] = {0, 127, 479, INT_MAX};
@@ -307,6 +298,7 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 	thrust::fill(thrust::device, deviceStructures.E, deviceStructures.E + 1, 0);
 
 	for (int bucketNum = 0; bucketNum < bucketsSize - 2; bucketNum++) {
+//    for (int bucketNum = 0; bucketNum < 1; bucketNum++) {
 			dim3 blockDimension = dims[bucketNum];
 			int prime = primes[bucketNum];
 			auto predicate = IsInBucketAggregation(buckets[bucketNum], buckets[bucketNum + 1], communityDegree);
@@ -321,9 +313,10 @@ void aggregateCommunities(device_structures &deviceStructures, host_structures &
 						communityDegree, orderedVertices, vertexStart, edgeIndexToCurPos, newEdges, newWeights);
 			}
 	}
+	dim3 blockDimension;
 	// last bucket case
 	int bucketNum = bucketsSize - 2;
-	dim3 blockDimension = dims[bucketNum];
+	blockDimension = dims[bucketNum];
 	int commDegree = newV;
 	int prime = getPrime(commDegree * 1.5);
 	auto predicate = IsInBucketAggregation(buckets[bucketNum], buckets[bucketNum + 1], communityDegree);

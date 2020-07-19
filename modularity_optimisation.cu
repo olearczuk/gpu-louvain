@@ -351,6 +351,7 @@ bool optimiseModularity(float minGain, device_structures& deviceStructures, host
         computeCommunityWeight<<<blocksNumber(V, 1), THREADS_PER_BLOCK>>>(deviceStructures);
 
 		float modularityAfter = calculateModularity(V, hostStructures.M, deviceStructures);
+		printf("%f %f %f\n", modularityBefore, modularityAfter, modularityAfter - modularityBefore);
 		totalGain = modularityAfter - modularityBefore;
 		wasAnythingChanged = wasAnythingChanged | (totalGain > 0);
 	}
