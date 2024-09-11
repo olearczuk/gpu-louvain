@@ -1,6 +1,6 @@
 # Overview
 Goal of this project was to implement Community detection algorithm (using Louvain method) 
-based on a paper: [Community Detection on the GPU](http://dspace.uib.no/bitstream/handle/1956/16753/PaperIII.pdf).
+based on a paper: [Community Detection on the GPU](https://bora.uib.no/bora-xmlui/bitstream/handle/1956/16753/PaperIII.pdf?sequence=1&isAllowed=y).
 
 # Usage
 Flag `-f` specifies input file, `-g` gain threshold, `-v` represents verbose mode
